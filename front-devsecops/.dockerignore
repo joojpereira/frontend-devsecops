@@ -1,7 +1,0 @@
-node_modules
-coverage
-test
-k8s
-.github
-.git
-*.sarif
