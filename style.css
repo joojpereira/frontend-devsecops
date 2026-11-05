@@ -1,0 +1,19 @@
+body {
+  font-family: system-ui, sans-serif;
+  background: #0f172a;
+  color: #e2e8f0;
+  display: flex;
+  justify-content: center;
+  padding: 3rem 1rem;
+}
+main { max-width: 520px; width: 100%; }
+h1 { margin-bottom: 0.25rem; }
+ol { padding-left: 1.2rem; line-height: 2; }
+li.done { color: #4ade80; }
+li.done::marker { content: "✔ "; }
+.bar { background: #1e293b; border-radius: 8px; height: 12px; overflow: hidden; margin: 1rem 0; }
+#bar-fill { background: #4ade80; height: 100%; width: 0; transition: width 0.4s; }
+button {
+  background: #38bdf8; color: #0f172a; border: 0;
+  padding: 0.6rem 1.2rem; border-radius: 8px; font-weight: 600; cursor: pointer;
+}
