@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,7 +15,7 @@ env:
   IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/frontend-devsecops
 
 jobs:
-  # ---------- 1) Qualidade: testes + SonarCloud ----------
+  # ---------- Qualidade: testes + SonarCloud ----------
   quality:
     runs-on: ubuntu-latest
     steps:
@@ -34,12 +35,52 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@v8.4.1
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        
-  # ---------- 2) Segurança do código: secrets, IaC, dependências ----------
-  security-code:
+
+  # ---------- Segurança: IaC (Dockerfile e Kubernetes) ----------
+  security-iac:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Trivy - IaC (relatório)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: sarif
+          output: trivy-iac.sarif
+          exit-code: "0"
+
+      - name: Guardar relatório
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relatorio-trivy-iac
+          path: trivy-iac.sarif
+
+      - name: Enviar SARIF ao GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-iac.sarif
+          category: trivy-iac
+
+      - name: Trivy - IaC (gate HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+  # ---------- Segurança: secrets no código ----------
+  security-secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Trivy - secrets
         uses: aquasecurity/trivy-action@v0.36.0
@@ -50,17 +91,13 @@ jobs:
           format: table
           exit-code: "1"
 
-      - name: Trivy - IaC (Dockerfile e Kubernetes)
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: config
-          scan-ref: .
-          format: sarif
-          output: trivy-iac.sarif
-          severity: HIGH,CRITICAL
-          exit-code: "1"
+  # ---------- Segurança: dependências da aplicação ----------
+  security-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Trivy - dependências
+      - name: Trivy - dependências (relatório)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -68,35 +105,37 @@ jobs:
           scanners: vuln
           format: sarif
           output: trivy-deps.sarif
+          exit-code: "0"
+
+      - name: Guardar relatório
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relatorio-trivy-dependencias
+          path: trivy-deps.sarif
+
+      - name: Trivy - dependências (gate CRITICAL)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          format: table
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: "1"
 
-      - name: Guardar relatórios
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: relatorios-trivy-codigo
-          path: "*.sarif"
-
-      - name: Enviar SARIF ao GitHub Security
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: trivy-iac.sarif
-          category: trivy-iac
-
-  # ---------- 3) Build + Trivy da imagem + Push ----------
+  # ---------- Build + Trivy da imagem + Push ----------
   build-scan-push:
     runs-on: ubuntu-latest
-    needs: [quality, security-code]
+    needs: [quality, security-iac, security-secrets, security-deps]
     steps:
       - uses: actions/checkout@v4
 
       - name: Build da imagem
         run: docker build -t ${{ env.IMAGE }}:${{ github.sha }} .
 
-      - name: Trivy - relatório da imagem
+      - name: Trivy - imagem (relatório)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.IMAGE }}:${{ github.sha }}
@@ -106,18 +145,20 @@ jobs:
           exit-code: "0"
 
       - name: Guardar relatório da imagem
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: relatorio-trivy-imagem
           path: trivy-image.sarif
 
-      - name: Enviar SARIF da imagem ao GitHub Security 
-        uses: github/codeql-action/upload-sarif@v3
+      - name: Enviar SARIF da imagem ao GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-image.sarif
           category: trivy-image
 
-      - name: Trivy - gate da imagem (bloqueia CRITICAL/HIGH)
+      - name: Trivy - imagem (gate HIGH/CRITICAL)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.IMAGE }}:${{ github.sha }}
@@ -127,21 +168,21 @@ jobs:
           exit-code: "1"
 
       - name: Login no Docker Hub
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
       - name: Push da imagem
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         run: |
           docker push ${{ env.IMAGE }}:${{ github.sha }}
           docker tag  ${{ env.IMAGE }}:${{ github.sha }} ${{ env.IMAGE }}:latest
           docker push ${{ env.IMAGE }}:latest
 
-  # ---------- 4) Deploy no kind (runner na máquina do cluster) ----------
+  # ---------- Deploy no kind (runner na sua máquina) ----------
   deploy:
     runs-on: self-hosted
     needs: build-scan-push
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 
@@ -153,3 +194,28 @@ jobs:
           kubectl apply -f k8s/service.yaml
           kubectl rollout status deployment/frontend --timeout=120s
           kubectl get pods,svc
+
+      - name: Testar aplicação
+        shell: powershell
+        run: |
+          $url = "http://localhost:8082"
+          for ($i = 1; $i -le 10; $i++) {
+            try {
+              $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 5
+              Write-Host "OK ($($r.StatusCode)) em $url"
+              "### Aplicação disponível em: $url" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+              exit 0
+            } catch {
+              Write-Host "Tentativa $i falhou, aguardando..."
+              Start-Sleep -Seconds 3
+            }
+          }
+          exit 1
+
+      - name: Diagnóstico em caso de falha
+        if: failure()
+        shell: powershell
+        run: |
+          kubectl get pods,svc -o wide
+          kubectl describe deployment frontend
+          kubectl logs deployment/frontend --all-containers --tail=50
