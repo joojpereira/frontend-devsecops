@@ -31,11 +31,10 @@ jobs:
       - run: npm test
 
       - name: SonarCloud scan + Quality Gate
-        uses: SonarSource/sonarqube-scan-action@v5
+        uses: SonarSource/sonarqube-scan-action@v8.4.1
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: https://sonarcloud.io
-
+        
   # ---------- 2) Segurança do código: secrets, IaC, dependências ----------
   security-code:
     runs-on: ubuntu-latest
@@ -43,7 +42,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Trivy - secrets
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -52,7 +51,7 @@ jobs:
           exit-code: "1"
 
       - name: Trivy - IaC (Dockerfile e Kubernetes)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: .
@@ -62,7 +61,7 @@ jobs:
           exit-code: "1"
 
       - name: Trivy - dependências
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -98,7 +97,7 @@ jobs:
         run: docker build -t ${{ env.IMAGE }}:${{ github.sha }} .
 
       - name: Trivy - relatório da imagem
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.IMAGE }}:${{ github.sha }}
           format: sarif
@@ -112,14 +111,14 @@ jobs:
           name: relatorio-trivy-imagem
           path: trivy-image.sarif
 
-      - name: Enviar SARIF da imagem ao GitHub Security
+      - name: Enviar SARIF da imagem ao GitHub Security 
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-image.sarif
           category: trivy-image
 
       - name: Trivy - gate da imagem (bloqueia CRITICAL/HIGH)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.IMAGE }}:${{ github.sha }}
           format: table
