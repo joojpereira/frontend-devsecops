@@ -1,0 +1,13 @@
+{
+  "name": "frontend-devsecops",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "c8 --reporter=lcov --reporter=text node --test",
+    "start": "npx serve ."
+  },
+  "devDependencies": {
+    "c8": "^10.1.2"
+  }
+}
