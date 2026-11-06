@@ -6,7 +6,7 @@ RUN apk upgrade --no-cache
 USER 101
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY index.html style.css /usr/share/nginx/html/
+COPY index.html style.css foto.jpg /usr/share/nginx/html/
 COPY src/ /usr/share/nginx/html/src/
 
 EXPOSE 8080
